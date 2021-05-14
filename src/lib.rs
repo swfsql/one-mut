@@ -39,7 +39,7 @@ pub struct OneMut<'t, T> {
 /// - The `Ok` case enforces that _all_ `Token`s were consumed exactly
 /// once (either by a mut access or by an intentional skipping
 /// of such),  
-/// - And the `Err` case enforces that _none_ of `Tokens` were consumed,
+/// - And the `Err` case enforces that _none_ of the `Tokens` were consumed,
 /// ie. no mut access occurred.
 pub type AllOrNone<'tokens, T, E, Tokens> =
     std::result::Result<(T, ConsumedToken<'tokens, Tokens>), (E, Token<'tokens, Tokens>)>;

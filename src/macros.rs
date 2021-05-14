@@ -1,11 +1,11 @@
 #[macro_export]
 macro_rules! tokens {
     ($last_token:expr) => {
-        $crate::Token::from($last_token)
+        $crate::Token::unchecked_from($last_token)
     };
 
     ($first_token:expr, $( $tail_tokens:expr),+ ) => {
-        $crate::Token::from($first_token).then( crate::tokens!( $($tail_tokens),+ ) )
+        $crate::Token::unchecked_from($first_token).then( crate::tokens!( $($tail_tokens),+ ) )
     };
 }
 

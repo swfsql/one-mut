@@ -118,11 +118,11 @@ impl<'t, T> OneMut<'t, T> {
     /// `Prepared` values get's an `apply()`.  
     ///
     /// _A priori_, all mutations are applied into a copy of `T`.  
-    /// - `Err` signal will make the (potentially changed) copy of `T`
-    /// to be discarded, and the original `T` will be kept intact.  
-    /// - `Ok` signal will replaced the (potentially changed) copy of `T`
-    /// into the original `T`, while the old value of the original `T` will
-    /// be discarded.
+    /// - `Err` signals for the (potentially changed) copy of `T`
+    /// to be discarded, and for the original `T` to be kept intact.  
+    /// - `Ok` signals for the (potentially changed) copy of `T`
+    /// to be replaced into the original `T`, while the old value of the
+    /// original `T` to be discarded.
     ///
     /// # Safety
     ///
@@ -144,12 +144,37 @@ impl<'t, T> OneMut<'t, T> {
     ///
     /// This may be useful for easily chaining `Prepared` values.
     #[allow(clippy::type_complexity)]
-    pub fn skip<E>(self) -> Prepared<OneMut<'t, T>, T, fn(&mut T) -> Result<(), E>, E> {
+    pub fn unchecked_skip<E>(self) -> Prepared<OneMut<'t, T>, T, fn(&mut T) -> Result<(), E>, E> {
         Prepared::new(self, |_t| Ok(()))
     }
 
+    /// Skips changing `T` by using an `|_| Ok(())` on `prepare()`.  
+    ///
+    /// This may be useful for easily chaining `Prepared` values.
+    ///
+    /// # Safety
+    /// (entirely logical)
+    ///
+    /// You must guarantee that this value being skipped of mutation is
+    /// logically correct.
+    #[allow(clippy::type_complexity)]
+    pub unsafe fn skip<E>(self) -> Prepared<OneMut<'t, T>, T, fn(&mut T) -> Result<(), E>, E> {
+        self.unchecked_skip()
+    }
+
     /// Consumes the token without changing `T`.
-    pub fn consume(self) -> ConsumedToken<'t, T> {
+    pub fn unchecked_consume(self) -> ConsumedToken<'t, T> {
+        self.token.consume()
+    }
+
+    /// Consumes the token without changing `T`.
+    ///
+    /// # Safety
+    /// (entirely logical)
+    ///
+    /// You must guarantee that this value being skipped of mutation is
+    /// logically correct.
+    pub unsafe fn consume(self) -> ConsumedToken<'t, T> {
         self.token.consume()
     }
 
@@ -171,14 +196,28 @@ impl<'t, T> OneMut<'t, T> {
         (u, l)
     }
 
-    pub fn token(self) -> Token<'t, T> {
+    pub fn unchecked_token(self) -> Token<'t, T> {
+        self.token
+    }
+
+    /// # Safety
+    /// (entirely logical)
+    ///
+    /// You must guarantee that this value being skipped of mutation is
+    /// logically correct.
+    pub unsafe fn token(self) -> Token<'t, T> {
         self.token
     }
 }
 
-impl<'t, T> From<OneMut<'t, T>> for Token<'t, T> {
-    fn from(t: OneMut<'t, T>) -> Self {
-        t.token()
+pub unsafe trait UncheckedFrom<T>: Sized {
+    /// Performs the conversion.
+    fn unchecked_from(_: T) -> Self;
+}
+
+unsafe impl<'t, T> UncheckedFrom<OneMut<'t, T>> for Token<'t, T> {
+    fn unchecked_from(t: OneMut<'t, T>) -> Self {
+        t.unchecked_token()
     }
 }
 
@@ -203,7 +242,7 @@ impl<'t, T> Take<Token<'t, T>, target::Token> for OneMut<'t, T> {
 }
 
 impl<'t, T> TakeOwned<Token<'t, T>, target::Token> for OneMut<'t, T> {
-    fn take_owned(self) -> Token<'t, T> {
+    unsafe fn take_owned(self) -> Token<'t, T> {
         self.token
     }
 }

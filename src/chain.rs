@@ -21,12 +21,16 @@ impl<A1, A2> Chain<A1, A2> {
     }
 }
 
+// TODO: check if is necessary
 impl<'t, A1, A2, F1, F2> TakeOwned<(F1, F2), target::Function> for Chain<A1, A2>
 where
     A1: TakeOwned<F1, target::Function>,
     A2: TakeOwned<F2, target::Function>,
 {
-    fn take_owned(self) -> (F1, F2) {
+    /// # Safety
+    ///
+    /// It is assumed that the caller has correctly used this method.
+    unsafe fn take_owned(self) -> (F1, F2) {
         let f1 = self.a1.take_owned();
         let f2 = self.a2.take_owned();
         (f1, f2)
@@ -81,17 +85,28 @@ where
         let (o, (next1, next2)) = match Self::modify_next(next, (f1.clone(), f2.clone())) {
             Ok((v1, v2)) => (v1, v2),
             Err(e) => {
-                let t1: Token<T1> = self.a1.take_owned();
-                let t2: Token<T2> = self.a2.take_owned();
+                // Safety:
+                //
+                // this is indicating that the mutation failed,
+                // and also preventing further mutations
+                let (t1, t2): (Token<T1>, Token<T2>) =
+                    unsafe { (self.a1.take_owned(), self.a2.take_owned()) };
                 return Err((e, t1.then(t2)));
             }
         };
 
+        // Safety:
+        //
         // only replace after both modifications were successfull
+        // and after this, an `Ok` return is guaranteed
         Self::replace(&mut self, (next1, next2));
 
-        let t1: Token<T1> = self.a1.take_owned();
-        let t2: Token<T2> = self.a2.take_owned();
+        // Safety:
+        //
+        // this is indicating that the mutation was successful,
+        // and also preventing further mutations
+        let (t1, t2): (Token<T1>, Token<T2>) =
+            unsafe { (self.a1.take_owned(), self.a2.take_owned()) };
         let consumed1 = ConsumedToken::from(t1);
         let consumed2 = ConsumedToken::from(t2);
 

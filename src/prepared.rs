@@ -27,7 +27,10 @@ impl<'t, OuterT, T, FInner, E> TakeOwned<Token<'t, T>, target::Token>
 where
     OuterT: TakeOwned<Token<'t, T>, target::Token>,
 {
-    fn take_owned(self) -> Token<'t, T> {
+    /// # Safety
+    ///
+    /// It is assumed that the caller has correctly used this method.
+    unsafe fn take_owned(self) -> Token<'t, T> {
         self.inner.take_owned()
     }
 }
@@ -91,13 +94,25 @@ where
         let (o, next) = match Self::modify_next(next, f) {
             Ok(v) => v,
             Err(e) => {
-                let t = self.inner.take_owned();
+                // Safety:
+                //
+                // this is indicating that the mutation failed,
+                // and also preventing further mutations
+                let t = unsafe { self.inner.take_owned() };
                 return Err((e, t));
             }
         };
-        self.replace(next);
+        // Safety:
         //
-        let t = self.inner.take_owned();
+        // only replace after the modifications were successful.
+        // Also, after this, an `Ok` return is guaranteed
+        self.replace(next);
+
+        // Safety:
+        //
+        // this is indicating that the mutation was successful,
+        // and also preventing further mutations
+        let t = unsafe { self.inner.take_owned() };
         let consumed = ConsumedToken::from(t);
         Ok((o, consumed))
     }
