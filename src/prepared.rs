@@ -53,6 +53,25 @@ impl<OuterT, T, F, E> Prepared<OuterT, T, F, E> {
 where {
         Chain::new(self, a2)
     }
+
+    pub fn unchecked_cancel<'t>(self) -> Token<'t, T>
+    where
+        T: 't,
+        OuterT: TakeOwned<Token<'t, T>, target::Token>,
+    {
+        unsafe { self.cancel() }
+    }
+
+    /// # Safety
+    ///
+    /// It is assumed that the caller has correctly used this method.
+    pub unsafe fn cancel<'t>(self) -> Token<'t, T>
+    where
+        T: 't,
+        OuterT: TakeOwned<Token<'t, T>, target::Token>,
+    {
+        self.inner.take_owned()
+    }
 }
 
 impl<'t, OuterT, T, F, O, E> PartialApply<T, F, O, E> for Prepared<OuterT, T, F, E>

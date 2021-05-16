@@ -1,4 +1,4 @@
-use crate::{target, OneMut, Prepared, Take, TakeOwned};
+use crate::{target, OneMut, Take, TakeOwned};
 use std::marker::PhantomData;
 
 /// A tag value that can be moved or consumed, and indicates
@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 ///
 /// See also `OneMut`.
 #[derive(Debug)]
-pub struct Token<'t, T>(PhantomData<&'t T>);
+pub struct Token<'t, T>(pub(crate) PhantomData<&'t T>);
 
 /// A tag value that can be moved, and indicates that `T` will
 /// no longer be able to be modified.
@@ -49,7 +49,7 @@ impl<'u, 'l, U, L> UpgraderToken<'u, 'l, U, L> {
 }
 
 impl<'t, T> Token<'t, T> {
-    fn new(t: &'t mut T) -> (Self, &'t mut T) {
+    pub(crate) fn new(t: &'t mut T) -> (Self, &'t mut T) {
         (Self(PhantomData), t)
     }
 
@@ -61,15 +61,6 @@ impl<'t, T> Token<'t, T> {
     /// Consumes the token.
     pub fn consume(self) -> ConsumedToken<'t, T> {
         self.into()
-    }
-}
-
-impl<'t1, 't2, 'tboth, T1, T2> Token<'tboth, (T1, T2)>
-where
-    'tboth: 't1 + 't2,
-{
-    pub fn split2(self) -> (Token<'t1, T1>, Token<'t2, T2>) {
-        (Token(PhantomData), Token(PhantomData))
     }
 }
 
@@ -99,117 +90,6 @@ impl<'t, T> From<Token<'t, T>> for ConsumedToken<'t, T> {
     }
 }
 
-/// Allows shared access into the Token.
-impl<'t, T> AsRef<T> for OneMut<'t, T> {
-    fn as_ref(&self) -> &T {
-        self.inner
-    }
-}
-
-impl<'t, T> OneMut<'t, T> {
-    pub fn new(inner: &'t mut T) -> Self {
-        let (token, inner) = Token::new(inner);
-        Self { inner, token }
-    }
-
-    /// Defines how `T` should be mutated, given an `Ok` response.
-    ///
-    /// The definition is stored to be lazily applied, for when the
-    /// `Prepared` values get's an `apply()`.  
-    ///
-    /// _A priori_, all mutations are applied into a copy of `T`.  
-    /// - `Err` signals for the (potentially changed) copy of `T`
-    /// to be discarded, and for the original `T` to be kept intact.  
-    /// - `Ok` signals for the (potentially changed) copy of `T`
-    /// to be replaced into the original `T`, while the old value of the
-    /// original `T` to be discarded.
-    ///
-    /// # Safety
-    ///
-    /// You must pay attention to the `Result` signaling.  
-    ///
-    /// - `Err` means that the original `T` _won't_ be changed.  
-    /// - `Ok` means that the original `T` _will_ be changed.
-    ///
-    /// Also, you must guarantee that your early-return logic is correct.  
-    /// That means ensuring that no `Ok` returns happened where `Err` should
-    /// have been returned, and ensuring that you don't early-return an `Ok`
-    /// before finalizing all of your necessary mutations.  
-    /// Otherwise you'll have inconsistent internal state.
-    pub unsafe fn prepare<F, E>(self, f: F) -> Prepared<OneMut<'t, T>, T, F, E> {
-        Prepared::new(self, f)
-    }
-
-    /// Skips changing `T` by using an `|_| Ok(())` on `prepare()`.  
-    ///
-    /// This may be useful for easily chaining `Prepared` values.
-    #[allow(clippy::type_complexity)]
-    pub fn unchecked_skip<E>(self) -> Prepared<OneMut<'t, T>, T, fn(&mut T) -> Result<(), E>, E> {
-        Prepared::new(self, |_t| Ok(()))
-    }
-
-    /// Skips changing `T` by using an `|_| Ok(())` on `prepare()`.  
-    ///
-    /// This may be useful for easily chaining `Prepared` values.
-    ///
-    /// # Safety
-    /// (entirely logical)
-    ///
-    /// You must guarantee that this value being skipped of mutation is
-    /// logically correct.
-    #[allow(clippy::type_complexity)]
-    pub unsafe fn skip<E>(self) -> Prepared<OneMut<'t, T>, T, fn(&mut T) -> Result<(), E>, E> {
-        self.unchecked_skip()
-    }
-
-    /// Consumes the token without changing `T`.
-    pub fn unchecked_consume(self) -> ConsumedToken<'t, T> {
-        self.token.consume()
-    }
-
-    /// Consumes the token without changing `T`.
-    ///
-    /// # Safety
-    /// (entirely logical)
-    ///
-    /// You must guarantee that this value being skipped of mutation is
-    /// logically correct.
-    pub unsafe fn consume(self) -> ConsumedToken<'t, T> {
-        self.token.consume()
-    }
-
-    /// Consumes the container `&'t mut T` to create an item `TP<L>`,
-    /// while storing the container's token into `UpgraderToken`.
-    /// The item `L` may later be modified, and the item's consumed
-    /// token may be upgraded into a container's consumed token.
-    ///
-    /// # Safety
-    ///
-    /// `f1` must ensure that the container is not modified,
-    /// such as pushing or removing items into it.
-    pub unsafe fn downgrade<'l, F1, L>(self, f1: F1) -> (UpgraderToken<'t, 'l, T, L>, OneMut<'l, L>)
-    where
-        F1: FnOnce(&'t mut T) -> &'l mut L,
-    {
-        let l = OneMut::new(f1(self.inner));
-        let u = UpgraderToken::new(self.token, &l);
-        (u, l)
-    }
-
-    pub fn unchecked_token(self) -> Token<'t, T> {
-        self.token
-    }
-
-    /// # Safety
-    /// (entirely logical)
-    ///
-    /// You must guarantee that this value being skipped of mutation is
-    /// logically correct.
-    pub unsafe fn token(self) -> Token<'t, T> {
-        self.token
-    }
-}
-
 pub unsafe trait UncheckedFrom<T>: Sized {
     /// Performs the conversion.
     fn unchecked_from(_: T) -> Self;
@@ -218,6 +98,24 @@ pub unsafe trait UncheckedFrom<T>: Sized {
 unsafe impl<'t, T> UncheckedFrom<OneMut<'t, T>> for Token<'t, T> {
     fn unchecked_from(t: OneMut<'t, T>) -> Self {
         t.unchecked_token()
+    }
+}
+
+unsafe impl<'t, T> UncheckedFrom<Token<'t, T>> for Token<'t, T> {
+    fn unchecked_from(t: Token<'t, T>) -> Self {
+        t
+    }
+}
+
+unsafe impl<'t, T> UncheckedFrom<OneMut<'t, T>> for ConsumedToken<'t, T> {
+    fn unchecked_from(t: OneMut<'t, T>) -> Self {
+        t.unchecked_consume()
+    }
+}
+
+unsafe impl<'t, T> UncheckedFrom<ConsumedToken<'t, T>> for ConsumedToken<'t, T> {
+    fn unchecked_from(t: ConsumedToken<'t, T>) -> Self {
+        t
     }
 }
 
